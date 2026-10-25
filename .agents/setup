@@ -1,0 +1,167 @@
+#!/usr/bin/env bash
+# Install Python 3.13, Poetry, OpenSpec, and project dependencies.
+# Idempotent: a warm snapshot skips downloads and only confirms the toolchain.
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+
+readonly PYTHON_VERSION=3.13
+readonly POETRY_VERSION=2.5.1
+readonly POETRY_HOME="${POETRY_HOME:-$HOME/.local/share/pypoetry}"
+readonly PROFILE_MARKER="# weather-tracker toolchain"
+
+export PATH="$HOME/.local/bin:$POETRY_HOME/bin:$PATH"
+
+log() { printf '[setup] %s\n' "$*"; }
+step() {
+  local label="$1"
+  shift
+  log ">> $label"
+  local start end
+  start=$(date +%s)
+  "$@"
+  end=$(date +%s)
+  log "<< $label ($((end - start))s)"
+}
+
+install_missing_packages() {
+  local pkg
+  local -a missing=()
+  for pkg in "$@"; do
+    if dpkg -s "$pkg" >/dev/null 2>&1; then
+      log "package already installed: $pkg"
+    else
+      missing+=("$pkg")
+    fi
+  done
+  if ((${#missing[@]} == 0)); then
+    return 0
+  fi
+  log "installing packages: ${missing[*]}"
+  step "apt-get update" sudo apt-get update -y
+  step "apt-get install" sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "${missing[@]}"
+}
+
+python_is_313() {
+  local candidate="$1"
+  [[ -x "$candidate" ]] && "$candidate" -c 'import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 13) else 1)'
+}
+
+find_python_313() {
+  local candidate root
+  # Do not use `uv python find` here: from the repo it prefers .venv.
+  if command -v uv >/dev/null 2>&1; then
+    root="$(uv python dir 2>/dev/null || true)"
+    if [[ -n "$root" ]]; then
+      candidate="$(find "$root" -path '*/bin/python3.13' -type f -print -quit 2>/dev/null || true)"
+      if python_is_313 "$candidate"; then
+        printf '%s\n' "$candidate"
+        return 0
+      fi
+    fi
+  fi
+  for candidate in \
+    "$HOME/.local/share/uv/python/cpython-3.13-linux-x86_64-gnu/bin/python3.13" \
+    /usr/bin/python3.13 \
+    /usr/local/bin/python3.13
+  do
+    if python_is_313 "$candidate"; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+ensure_uv() {
+  if command -v uv >/dev/null 2>&1; then
+    log "uv already installed ($(uv --version))"
+    return 0
+  fi
+  step "install uv" bash -c 'curl -LsSf https://astral.sh/uv/install.sh | sh'
+  export PATH="$HOME/.local/bin:$PATH"
+}
+
+ensure_python() {
+  local python_bin=""
+  if python_bin="$(find_python_313)"; then
+    log "Python 3.13 already installed at $python_bin" >&2
+    printf '%s\n' "$python_bin"
+    return 0
+  fi
+  ensure_uv >&2
+  step "install Python $PYTHON_VERSION" uv python install "$PYTHON_VERSION" >&2
+  python_bin="$(find_python_313)"
+  printf '%s\n' "$python_bin"
+}
+
+poetry_matches() {
+  command -v poetry >/dev/null 2>&1 && [[ "$(poetry --version 2>/dev/null || true)" == "Poetry (version $POETRY_VERSION)" ]]
+}
+
+ensure_poetry() {
+  local python_bin="$1"
+  if poetry_matches; then
+    log "Poetry $POETRY_VERSION already installed"
+    return 0
+  fi
+  local installer
+  installer="$(mktemp)"
+  curl -fsSL https://install.python-poetry.org -o "$installer"
+  step "install Poetry $POETRY_VERSION" \
+    env POETRY_HOME="$POETRY_HOME" POETRY_VERSION="$POETRY_VERSION" \
+    "$python_bin" "$installer" --version "$POETRY_VERSION"
+  rm -f -- "$installer"
+  export PATH="$POETRY_HOME/bin:$PATH"
+}
+
+ensure_openspec() {
+  if command -v openspec >/dev/null 2>&1; then
+    log "OpenSpec already installed ($(openspec --version))"
+    return 0
+  fi
+  step "install OpenSpec" bash -c 'curl -fsSL https://raw.githubusercontent.com/Fission-AI/OpenSpec/main/scripts/binary/install.sh | sh'
+  export PATH="$HOME/.local/bin:$PATH"
+}
+
+persist_path() {
+  local profile="$HOME/.bash_profile"
+  if grep -Fqx "$PROFILE_MARKER" "$profile" 2>/dev/null; then
+    log "toolchain PATH already configured in $profile"
+    return 0
+  fi
+  log "adding toolchain PATH to $profile"
+  cat >> "$profile" <<EOF
+
+$PROFILE_MARKER
+case ":\$PATH:" in
+  *":\$HOME/.local/bin:"*) ;;
+  *) export PATH="\$HOME/.local/bin:\$PATH" ;;
+esac
+case ":\$PATH:" in
+  *":\$HOME/.local/share/pypoetry/bin:"*) ;;
+  *) export PATH="\$HOME/.local/share/pypoetry/bin:\$PATH" ;;
+esac
+EOF
+}
+
+install_missing_packages ca-certificates curl
+
+python_bin="$(ensure_python)"
+log "python: $("$python_bin" --version) ($python_bin)"
+
+ensure_poetry "$python_bin"
+ensure_openspec
+persist_path
+
+if [[ ! -d .venv ]]; then
+  log "creating in-project virtualenv with $python_bin"
+  "$python_bin" -m venv .venv
+fi
+step "poetry sync" poetry sync --no-interaction
+
+log "poetry: $(poetry --version)"
+log "openspec: $(openspec --version)"
+log "venv: $(poetry run python -c 'import sys; print(sys.version.split()[0], sys.prefix)')"
+log "setup complete"

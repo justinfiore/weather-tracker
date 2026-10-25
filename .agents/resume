@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Fast wake-up check. No installs. Must finish in seconds.
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+
+export PATH="$HOME/.local/bin:$HOME/.local/share/pypoetry/bin:$PATH"
+
+log() { printf '[resume] %s\n' "$*"; }
+
+if ! command -v poetry >/dev/null 2>&1; then
+  log "ERROR: poetry not on PATH; re-run .agents/setup"
+  exit 1
+fi
+
+if ! command -v openspec >/dev/null 2>&1; then
+  log "ERROR: openspec not on PATH; re-run .agents/setup"
+  exit 1
+fi
+
+if [[ ! -x .venv/bin/python ]]; then
+  log "ERROR: .venv missing; re-run .agents/setup"
+  exit 1
+fi
+
+.venv/bin/python -c 'import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 13) else 1)'
+
+log "ok poetry=$(poetry --version) openspec=$(openspec --version) python=$(.venv/bin/python -c 'import sys; print(sys.version.split()[0])')"

@@ -1,0 +1,24 @@
+[project]
+name = "weather-tracker"
+version = "0.1.0"
+description = "Track weather observations and forecasts."
+authors = [
+    {name = "Justin Fiore", email = "justin.fiore@gmail.com"}
+]
+license = "MIT"
+readme = "README.md"
+requires-python = ">=3.13,<4.0"
+dependencies = []
+
+[tool.poetry]
+packages = [{include = "weather_tracker", from = "src"}]
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^9.1.1"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
