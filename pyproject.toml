@@ -8,7 +8,10 @@ authors = [
 license = "MIT"
 readme = "README.md"
 requires-python = ">=3.13,<4.0"
-dependencies = []
+dependencies = ["google-auth-oauthlib (>=1.5.0,<2.0.0)", "google-api-python-client (>=2.201.0,<3.0.0)", "playwright (>=1.64.1,<2.0.0)"]
+
+[project.scripts]
+weather-tracker = "weather_tracker.cli:main"
 
 [tool.poetry]
 packages = [{include = "weather_tracker", from = "src"}]
@@ -22,3 +25,4 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["live: opt-in external browser page collection (no Sheets writes)"]
