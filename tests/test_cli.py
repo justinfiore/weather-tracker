@@ -1,4 +1,5 @@
 from contextlib import nullcontext
+from datetime import datetime
 from types import SimpleNamespace
 
 import pytest
@@ -12,6 +13,9 @@ from test_sheets import MemorySheet, TARGETS, readings
 def test_retries_continue_and_report_success(browser, monkeypatch, capsys):
     calls = {}
     waits = []
+    instants = [datetime.fromisoformat(value) for value in ("2026-10-25T06:00:03-04:00", "2026-10-25T06:00:08-04:00")]
+    clock = iter(instants)
+    monkeypatch.setattr(cli, "datetime", SimpleNamespace(now=lambda timezone: next(clock)))
 
     def source(page, name, targets):
         calls[name] = calls.get(name, 0) + 1
@@ -25,6 +29,7 @@ def test_retries_continue_and_report_success(browser, monkeypatch, capsys):
     with browser.new_context() as context:
         results = cli.collect_all(context, TARGETS, sleep=waits.append, jitter=lambda: 0.25)
     assert [result.source for result in results if result.available] == ["weather.com", "AccuWeather"]
+    assert [result.observed_at for result in results if result.available] == instants
     assert calls == {"weather.com": 2, "AccuWeather": 1, "WTAE": 3, "NWS": 2}
     assert waits == [2.25, 2.25, 8.25, 2.25]
     output = capsys.readouterr().out

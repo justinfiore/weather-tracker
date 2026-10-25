@@ -26,6 +26,8 @@ def collect_all(context, targets, *, sleep=time.sleep, jitter=random.random):
             page.set_default_timeout(60000)
             try:
                 candidate = collect_source(page, source, targets)
+                if candidate.available and not result.available:
+                    result.observed_at = datetime.now(EASTERN)
                 # Retain partial success if a later retry fails completely.
                 result.days.update({day: value for day, value in candidate.days.items() if value.available})
                 result.error = candidate.error

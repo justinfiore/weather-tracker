@@ -26,9 +26,10 @@ machines missing browser libraries can use `playwright install --with-deps chrom
 ## Sheets setup
 
 Use an existing spreadsheet and an existing, empty tab named `Daily`, or configure
-another tab. The collector initializes the empty tab's 32 headers, but does not
-create spreadsheets or tabs. It refuses an incompatible header instead of
-overwriting unrelated data. Enable the Google Sheets API in the OAuth app's Cloud
+another tab. The collector initializes the empty tab's 36 headers, but does not
+create spreadsheets or tabs. Existing 32-column headers are extended with four
+timestamp headers without moving existing columns or changing data. It refuses
+an incompatible header instead of overwriting unrelated data. Enable the Google Sheets API in the OAuth app's Cloud
 project, and include the sheet owner as a test user if the app is in testing mode.
 
 Configuration comes from environment variables (Amp project configuration for a
@@ -100,6 +101,14 @@ high/low (F/C), and five-day date, in weather.com, AccuWeather, WTAE order. The
 four NWS actual columns are filled on **yesterday's row**; today's actuals remain
 blank. A missing yesterday row is created with actuals only. Temperature cells
 are numeric with explicit decimal formatting, so they can be charted directly.
+
+Four columns appended at AG–AJ record `Collected At (Eastern)` for weather.com,
+AccuWeather, WTAE, and NWS. Each is the first successful page read for that source
+in the run, recorded as an ISO date/time with seconds and UTC offset, such as
+`2026-10-25T06:00:08-04:00`, not the common run start time. NWS's timestamp goes
+on yesterday's row alongside its actuals. Failed sources have no timestamp.
+Like other values, a timestamp is written only when blank and preserved on reruns;
+on a legacy row it records the first successful read since timestamp tracking began.
 
 Only blank cells are filled. Existing numbers (including zero), dates, and
 formulas are preserved on reruns. A failed source leaves its cells blank and

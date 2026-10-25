@@ -6,7 +6,7 @@ import fcntl
 import hashlib
 import os
 
-from weather_tracker.readings import FORECAST_SOURCES, Targets
+from weather_tracker.readings import EASTERN, FORECAST_SOURCES, Targets
 
 FORECAST_COLUMNS = (
     "Next Day High (F)", "Next Day High (C)", "Next Day Low (F)", "Next Day Low (C)",
@@ -14,6 +14,7 @@ FORECAST_COLUMNS = (
 )
 HEADERS = ["Date"] + [f"{source} {column}" for source in FORECAST_SOURCES for column in FORECAST_COLUMNS] + [
     "NWS Actual High (F)", "NWS Actual High (C)", "NWS Actual Low (F)", "NWS Actual Low (C)",
+    *[f"{source} Collected At (Eastern)" for source in (*FORECAST_SOURCES, "NWS")],
 ]
 
 
@@ -50,12 +51,15 @@ def update_sheet(api, sheet_id: str, tab: str, targets: Targets, readings) -> li
                 if day is not None and day.available:
                     row = desired.setdefault(str(targets.today), {})
                     row.update(enumerate(_values(day), start))
+                    row[32 + FORECAST_SOURCES.index(reading.source)] = reading.observed_at.astimezone(EASTERN).isoformat(timespec="seconds")
                     if target == targets.five_day:
                         row[offset + 8] = str(target)
         elif reading.source == "NWS":
             day = reading.days.get(targets.previous)
             if day is not None and day.available:
-                desired.setdefault(str(targets.previous), {}).update(enumerate(_values(day), 28))
+                row = desired.setdefault(str(targets.previous), {})
+                row.update(enumerate(_values(day), 28))
+                row[35] = reading.observed_at.astimezone(EASTERN).isoformat(timespec="seconds")
     if not desired:
         return []
     try:
@@ -67,9 +71,14 @@ def update_sheet(api, sheet_id: str, tab: str, targets: Targets, readings) -> li
             rows = sheet.get("data", [{}])[0].get("rowData", [])
             cells = [row.get("values", []) for row in rows]
             nonempty = lambda cell: any(value != "" for value in cell.get("userEnteredValue", cell.get("effectiveValue", {})).values())
+            header_start = 0
             if cells and any(nonempty(cell) for cell in cells[0]):
                 header = [cell.get("formattedValue", "") for cell in cells[0]]
-                if header[:len(HEADERS)] != HEADERS or any(header[len(HEADERS):]):
+                if header[:len(HEADERS)] == HEADERS and not any(header[len(HEADERS):]):
+                    header_start = len(HEADERS)
+                elif header[:32] == HEADERS[:32] and not any(header[32:]):
+                    header_start = 32
+                else:
                     raise SheetError("Tab headers do not match weather-tracker; use an empty tab")
             elif any(nonempty(cell) for row in cells[1:] for cell in row):
                 raise SheetError("Tab has data without headers; use an empty tab")
@@ -90,9 +99,8 @@ def update_sheet(api, sheet_id: str, tab: str, targets: Targets, readings) -> li
                 requests.append({"updateCells": {"start": {"sheetId": sheet_number, "rowIndex": row, "columnIndex": col},
                                                   "rows": [{"values": [cell]}], "fields": fields}})
 
-            if not cells or not any(nonempty(cell) for cell in cells[0]):
-                for col, header in enumerate(HEADERS):
-                    write(0, col, header)
+            for col in range(header_start, len(HEADERS)):
+                write(0, col, HEADERS[col])
             dates = {}
             for index, row in enumerate(cells[1:], 1):
                 day = row[0].get("formattedValue", "") if row else ""

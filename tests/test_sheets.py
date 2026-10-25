@@ -1,5 +1,5 @@
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -15,12 +15,15 @@ def daily(high="69.4", low="45"):
 
 
 def readings():
-    return [
+    results = [
         Reading("weather.com", TARGETS.observed_at, {TARGETS.tomorrow: daily(), TARGETS.five_day: daily("72", "52")}),
         Reading("AccuWeather", TARGETS.observed_at, {TARGETS.tomorrow: daily("68", "43")}),
         Reading("WTAE", TARGETS.observed_at, {}, "failed"),
         Reading("NWS", TARGETS.observed_at, {TARGETS.previous: daily("63", "39")}),
     ]
+    for index, result in enumerate(results, 1):
+        result.observed_at += timedelta(seconds=index, microseconds=123456)
+    return results
 
 
 class MemorySheet:
@@ -66,7 +69,7 @@ class MemorySheet:
 
     def values(self, index):
         row = self.rows[index]
-        return [next(iter(cell.get("userEnteredValue", {}).values()), "") for cell in row] + [""] * (32 - len(row))
+        return [next(iter(cell.get("userEnteredValue", {}).values()), "") for cell in row] + [""] * (len(HEADERS) - len(row))
 
 
 def test_forecasts_actuals_partial_failure_and_blank_only_rerun():
@@ -74,10 +77,11 @@ def test_forecasts_actuals_partial_failure_and_blank_only_rerun():
     assert update_sheet(sheet, "test", "Daily", TARGETS, readings()) == ["2026-10-24", "2026-10-25"]
     assert sheet.values(0) == HEADERS
     yesterday, today = sheet.values(1), sheet.values(2)
-    assert yesterday == ["2026-10-24"] + [""] * 27 + [63, 17, 39, 4]
+    assert yesterday == ["2026-10-24"] + [""] * 27 + [63, 17, 39, 4] + ["", "", "", "2026-10-25T06:00:04-04:00"]
     assert today[0:10] == ["2026-10-25", 69.4, 20.8, 45, 7, 72, 22, 52, 11, "2026-10-30"]
     assert today[10:14] == [68, 20, 43, 6]
     assert today[14:32] == [""] * 18
+    assert today[32:36] == ["2026-10-25T06:00:01-04:00", "2026-10-25T06:00:02-04:00", "", ""]
     assert sheet.rows[2][1]["userEnteredFormat"]["numberFormat"]["pattern"] == "0.0"
     assert sheet.rows[2][2]["userEnteredFormat"]["numberFormat"]["pattern"] == "0.0"
     assert sheet.rows[2][3]["userEnteredFormat"]["numberFormat"]["pattern"] == "0"
@@ -87,13 +91,32 @@ def test_forecasts_actuals_partial_failure_and_blank_only_rerun():
     sheet.rows[2][2] = {"userEnteredValue": {"formulaValue": '=IF(TRUE,"",1)'}, "formattedValue": ""}
     sheet.rows[2][3] = {"userEnteredValue": {"stringValue": ""}, "formattedValue": ""}
     repeated = readings()
+    for result in repeated:
+        result.observed_at += timedelta(hours=1)
     repeated[2].days[TARGETS.tomorrow] = daily("66", "41")
     assert update_sheet(sheet, "test", "Daily", TARGETS, repeated) == ["2026-10-25"]
     assert len(sheet.rows) == 3
     assert sheet.values(2)[1:3] == [0, '=IF(TRUE,"",1)']
     assert sheet.values(2)[3] == 45
     assert sheet.values(2)[19:23] == [66, 19, 41, 5]
+    assert sheet.values(2)[32:36] == ["2026-10-25T06:00:01-04:00", "2026-10-25T06:00:02-04:00", "2026-10-25T07:00:03-04:00", ""]
+    assert sheet.values(1)[35] == "2026-10-25T06:00:04-04:00"
     assert update_sheet(sheet, "test", "Daily", TARGETS, repeated) == []
+
+
+def test_legacy_headers_extend_without_moving_data_and_timestamps_use_eastern():
+    sheet = MemorySheet()
+    update_sheet(sheet, "test", "Daily", TARGETS, readings())
+    for row in sheet.rows:
+        del row[32:]
+    before = deepcopy(sheet.rows)
+    results = readings()
+    results[0].observed_at = datetime.fromisoformat("2026-10-25T23:12:43.987654+00:00")
+    update_sheet(sheet, "test", "Daily", TARGETS, results)
+    assert sheet.values(0) == HEADERS
+    assert HEADERS[32:] == [f"{source} Collected At (Eastern)" for source in ("weather.com", "AccuWeather", "WTAE", "NWS")]
+    assert all(row[:32] == old for row, old in zip(sheet.rows, before))
+    assert sheet.values(2)[32] == "2026-10-25T19:12:43-04:00"
 
 
 def test_all_failed_writes_nothing():

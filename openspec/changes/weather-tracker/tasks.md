@@ -34,4 +34,4 @@
 
 - [x] 6.1 Run `weather-tracker auth` as the Google user who owns the science-project sheet and store the refresh token as project secret `SHEETS_REFRESH_TOKEN`. Verify a later collect does not open a browser
 - [x] 6.2 Run one live `weather-tracker collect` against the configured sheet and verify the collection-date row has forecast columns filled and actuals written only on the previous date's row
-- [ ] 6.3 Create the Amp schedule for 6:00 a.m. America/New_York that runs `poetry run weather-tracker collect`, and verify the saved prompt names that command and the thread is not set to archive
+- [x] 6.3 Create the Amp schedule for 6:00 a.m. America/New_York that runs `poetry run weather-tracker collect`, and verify the saved prompt names that command and the thread is not set to archive
