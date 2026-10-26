@@ -11,23 +11,28 @@ from googleapiclient.discovery import build
 from playwright.sync_api import sync_playwright
 
 from weather_tracker import auth
+from weather_tracker.evidence import Evidence
 from weather_tracker.readings import EASTERN, Reading, Targets
 from weather_tracker.sheets import SheetError, update_sheet
 from weather_tracker.sources import ParseError, URLS, collect_source
 
 
-def collect_all(context, targets, *, sleep=time.sleep, jitter=random.random):
+def collect_all(context, targets, *, sleep=time.sleep, jitter=random.random, evidence=None):
     results = []
     for source in URLS:
         result = Reading(source, targets.observed_at, {}, "Source unavailable")
         parse_failures = 0
         for attempt in range(3):
+            candidate = None
+            observed_at = None
             page = context.new_page()
             page.set_default_timeout(60000)
             try:
                 candidate = collect_source(page, source, targets)
+                if candidate.available:
+                    observed_at = datetime.now(EASTERN)
                 if candidate.available and not result.available:
-                    result.observed_at = datetime.now(EASTERN)
+                    result.observed_at = observed_at
                 # Retain partial success if a later retry fails completely.
                 result.days.update({day: value for day, value in candidate.days.items() if value.available})
                 result.error = candidate.error
@@ -41,13 +46,21 @@ def collect_all(context, targets, *, sleep=time.sleep, jitter=random.random):
                 # Provider/transport exceptions may include URLs or credentials.
                 result.error = "Page unavailable or did not finish rendering"
             finally:
-                page.close()
+                try:
+                    if evidence is not None:
+                        evidence.record(page, source, attempt + 1, candidate, observed_at, result.error)
+                finally:
+                    page.close()
             if parse_failures >= 2 or attempt == 2:
                 break
             sleep((2, 8)[attempt] + jitter())
         status = "partial" if result.available and result.error else "ok" if result.available else "failed"
         print(f"{source}: {status}" + (f" — {result.error}" if result.error else ""))
+        if evidence is not None:
+            evidence.finish_source(result)
         results.append(result)
+    if evidence is not None:
+        print(f"Screenshot evidence: {evidence.path / 'README.md'}")
     return results
 
 
@@ -64,8 +77,8 @@ def collect(*, headed=False):
         chrome = shutil.which("google-chrome") or shutil.which("chromium")
         browser = p.chromium.launch(executable_path=chrome, headless=not headed)
         try:
-            with browser.new_context(locale="en-US", timezone_id="America/New_York") as context:
-                results = collect_all(context, targets)
+            with browser.new_context(locale="en-US", timezone_id="America/New_York", viewport={"width": 1280, "height": 720}, device_scale_factor=2) as context:
+                results = collect_all(context, targets, evidence=Evidence(targets))
         finally:
             browser.close()
     if not any(result.available for result in results):

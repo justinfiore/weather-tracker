@@ -39,6 +39,9 @@ pip-delete-this-directory.txt
 # Orb runtime portal metadata.
 .amp/portals/
 
+# Local collection screenshots and their indexes.
+.amp/in/artifacts/collections/
+
 # Unit test / coverage reports
 htmlcov/
 .tox/

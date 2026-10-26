@@ -45,7 +45,8 @@ def test_retries_continue_and_report_success(browser, monkeypatch, capsys):
     ("failed", 1, "every source failed"),
     ("unavailable", 1, "Could not open or update spreadsheet"),
 ])
-def test_collect_command_exit_codes(browser, monkeypatch, capsys, state, expected, message):
+def test_collect_command_exit_codes(browser, monkeypatch, capsys, tmp_path, state, expected, message):
+    monkeypatch.chdir(tmp_path)
     sheet = MemorySheet()
     results = readings()
     if state == "present":
@@ -57,7 +58,7 @@ def test_collect_command_exit_codes(browser, monkeypatch, capsys, state, expecte
     monkeypatch.setenv("GOOGLE_SHEET_TAB", "Daily")
     monkeypatch.setattr(cli.auth, "credentials", lambda: object())
     monkeypatch.setattr(cli, "Targets", lambda instant: TARGETS)
-    monkeypatch.setattr(cli, "collect_all", lambda *args: results)
+    monkeypatch.setattr(cli, "collect_all", lambda *args, **kwargs: results)
     # Share the fixture's Playwright runtime instead of nesting sync runtimes.
     instance = SimpleNamespace(new_context=browser.new_context, close=lambda: None)
     runtime = SimpleNamespace(chromium=SimpleNamespace(launch=lambda **kwargs: instance))
